@@ -20,6 +20,8 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
   const stateRef = React.useRef(state);
   const cursorRef = React.useRef(cursor);
   const cursorTrailRef = React.useRef<Array<{ x: number; y: number; t: number }>>([]);
+  const emittedSliceIdsRef = React.useRef<Set<string>>(new Set());
+  const splashFxRef = React.useRef<Array<SplashFx>>([]);
   React.useEffect(() => { stateRef.current = state; }, [state]);
   React.useEffect(() => { cursorRef.current = cursor; }, [cursor]);
 
@@ -47,6 +49,40 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
       // Dark translucent tint so bright webcam doesn't wash out fruits
       ctx.fillStyle = "rgba(0,0,0,0.38)";
       ctx.fillRect(0, 0, w, h);
+
+      // Spawn splash FX once per sliced fruit.
+      const activeFruitIds = new Set<string>();
+      for (const f of s.fruits) {
+        activeFruitIds.add(f.id);
+        if (!f.sliced || !f.slicedAtMs || emittedSliceIdsRef.current.has(f.id)) continue;
+        emittedSliceIdsRef.current.add(f.id);
+        splashFxRef.current.push({
+          x: f.pos.x,
+          y: f.pos.y,
+          createdAtMs: performance.now(),
+          rotation: Math.random() * Math.PI * 2,
+          scale: 0.6 + Math.random() * 0.4,
+          spriteKey: splashSpriteForFruitKind(f.kind),
+        });
+      }
+      for (const id of emittedSliceIdsRef.current) {
+        if (!activeFruitIds.has(id)) emittedSliceIdsRef.current.delete(id);
+      }
+
+      // --- Splash effects ---
+      const now = performance.now();
+      const splashLifeMs = 420;
+      splashFxRef.current = splashFxRef.current.filter((fx) => now - fx.createdAtMs <= splashLifeMs);
+      for (const fx of splashFxRef.current) {
+        const age = now - fx.createdAtMs;
+        const t = clamp01(age / splashLifeMs);
+        const alpha = 0.85 * (1 - t);
+        const growth = 1 + t * 0.4;
+        const splash = spritesRef.current[fx.spriteKey];
+        if (splash.complete && splash.naturalWidth > 0) {
+          drawImageCentered(ctx, splash, fx.x, fx.y, 100 * fx.scale * growth, 100 * fx.scale * growth, fx.rotation, alpha);
+        }
+      }
 
       // --- Fruits ---
       for (const f of s.fruits) {
@@ -99,14 +135,10 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
           drawNeonDottedSegment(ctx, p0.x, p0.y, p1.x, p1.y, 0.9 * fade);
         }
 
-        // Cursor dot
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "rgba(56,189,248,0.95)";
-        ctx.shadowColor = "rgba(56,189,248,1)";
-        ctx.shadowBlur = 18;
-        ctx.beginPath();
-        ctx.arc(cur.x, cur.y, 6, 0, Math.PI * 2);
-        ctx.fill();
+        // Blade cursor (direction follows latest movement).
+        const p0 = trail.length >= 2 ? trail[trail.length - 2]! : null;
+        const angle = p0 ? Math.atan2(cur.y - p0.y, cur.x - p0.x) : 0;
+        drawBladeCursor(ctx, cur.x, cur.y, angle);
         ctx.restore();
       } else {
         // No cursor detected: clear trail so it doesn't “teleport” on re-acquire.
@@ -276,7 +308,11 @@ type SpriteKey =
   | "pineapplePart2"
   | "watermelonWhole"
   | "watermelonPart1"
-  | "watermelonPart2";
+  | "watermelonPart2"
+  | "splashOrange"
+  | "splashRed"
+  | "splashYellow"
+  | "splashTransparent";
 
 function createSpriteCache(): Record<SpriteKey, HTMLImageElement> {
   const make = (src: string) => {
@@ -298,6 +334,10 @@ function createSpriteCache(): Record<SpriteKey, HTMLImageElement> {
     watermelonWhole: make("/assets/fruit-ninja/watermelon.png"),
     watermelonPart1: make("/assets/fruit-ninja/watermelon_half_1.png"),
     watermelonPart2: make("/assets/fruit-ninja/watermelon_half_2.png"),
+    splashOrange: make("/assets/fruit-ninja/splash_orange.png"),
+    splashRed: make("/assets/fruit-ninja/splash_red.png"),
+    splashYellow: make("/assets/fruit-ninja/splash_yellow.png"),
+    splashTransparent: make("/assets/fruit-ninja/splash_transparent.png"),
   };
 }
 
@@ -362,6 +402,68 @@ function drawNeonDottedSegment(
 
 function clamp01(v: number) {
   return Math.max(0, Math.min(1, v));
+}
+
+type SplashFx = {
+  x: number;
+  y: number;
+  createdAtMs: number;
+  rotation: number;
+  scale: number;
+  spriteKey: SpriteKey;
+};
+
+function splashSpriteForFruitKind(kind: string): SpriteKey {
+  switch (kind) {
+    case "orange":
+      return "splashOrange";
+    case "lemon":
+      return "splashYellow";
+    case "watermelon":
+      return "splashRed";
+    default:
+      return "splashTransparent";
+  }
+}
+
+function drawBladeCursor(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  // Outer glow
+  ctx.shadowColor = "rgba(99,224,255,0.95)";
+  ctx.shadowBlur = 22;
+
+  // Blade body
+  const length = 40;
+  const width = 8;
+  ctx.fillStyle = "rgba(225,245,255,0.92)";
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.42, -width * 0.7);
+  ctx.lineTo(length * 0.45, -width * 0.32);
+  ctx.lineTo(length * 0.65, 0);
+  ctx.lineTo(length * 0.45, width * 0.32);
+  ctx.lineTo(-length * 0.42, width * 0.7);
+  ctx.closePath();
+  ctx.fill();
+
+  // Blade edge highlight
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.95)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.35, -1.4);
+  ctx.lineTo(length * 0.52, -0.4);
+  ctx.stroke();
+
+  // Core spark
+  ctx.fillStyle = "rgba(56,189,248,0.95)";
+  ctx.beginPath();
+  ctx.arc(0, 0, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
