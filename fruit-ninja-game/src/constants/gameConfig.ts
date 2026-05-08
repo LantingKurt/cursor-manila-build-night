@@ -9,8 +9,8 @@ export const gameConfig = {
     rampSeconds: 90,
   },
   physics: {
-    gravity: 1400, // px/s^2  — lower = higher arcs
-    airDrag: 0.999,
+    gravity: 580, // px/s^2 — low gravity = high arcs, ~2.5s hang time
+    airDrag: 0.9995,
   },
   slash: {
     minSpeedPxPerSec: 1100,
