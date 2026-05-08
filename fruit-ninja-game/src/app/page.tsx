@@ -6,6 +6,7 @@ import { GameCanvas } from "@/components/GameCanvas";
 import { Leaderboard } from "@/components/Leaderboard";
 import { Stats } from "@/components/Stats";
 import { gameConfig } from "@/constants/gameConfig";
+import { useGameAudio } from "@/hooks/useGameAudio";
 import { useGame } from "@/hooks/useGame";
 import { useHandDetection } from "@/hooks/useHandDetection";
 import { useWebcam } from "@/hooks/useWebcam";
@@ -15,6 +16,7 @@ export default function Home() {
   const webcam = useWebcam();
   const hand = useHandDetection(webcam.videoRef);
   const lastSlashMsRef = useRef(0);
+  useGameAudio(game.state, hand.slash?.tMs ?? null);
 
   // Map hand keypoint (video px) → canvas coords.
   // X is flipped because the video is CSS-mirrored (scaleX(-1)) so visual left = raw right.
