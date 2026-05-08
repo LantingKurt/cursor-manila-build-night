@@ -19,6 +19,7 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
   // Keep latest state/cursor in refs so the RAF loop doesn't need to restart.
   const stateRef = React.useRef(state);
   const cursorRef = React.useRef(cursor);
+  const cursorTrailRef = React.useRef<Array<{ x: number; y: number; t: number }>>([]);
   React.useEffect(() => { stateRef.current = state; }, [state]);
   React.useEffect(() => { cursorRef.current = cursor; }, [cursor]);
 
@@ -68,43 +69,48 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
 
       // --- Slash trails ---
       ctx.save();
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
       for (const sl of s.slashes) {
         const age = (performance.now() - sl.tMs) / 1000;
         const a = Math.max(0, 1 - age / gameConfig.slash.trailSeconds);
-        ctx.globalAlpha = 0.75 * a;
-        ctx.lineWidth = 14 * a + 3;
-        ctx.strokeStyle = "rgba(255,255,255,0.95)";
-        ctx.shadowColor = "rgba(100,200,255,0.9)";
-        ctx.shadowBlur = 22 * a;
-        ctx.beginPath();
-        ctx.moveTo(sl.a.x, sl.a.y);
-        ctx.lineTo(sl.b.x, sl.b.y);
-        ctx.stroke();
+        drawNeonDottedSegment(ctx, sl.a.x, sl.a.y, sl.b.x, sl.b.y, a);
       }
       ctx.restore();
 
-      // --- Finger cursor ring ---
+      // --- Cursor: smooth neon dot + dotted trail ---
       if (cur) {
-        const knife = spritesRef.current.knife;
-        const latestSlash = s.slashes.at(-1);
-        const knifeAngle = latestSlash ? Math.atan2(latestSlash.b.y - latestSlash.a.y, latestSlash.b.x - latestSlash.a.x) : 0;
+        const tNow = performance.now();
+        const trail = cursorTrailRef.current;
+        const last = trail.length ? trail[trail.length - 1] : null;
+
+        // Add points only when meaningfully moved (reduces jitter + work)
+        if (!last || Math.hypot(cur.x - last.x, cur.y - last.y) >= 3) {
+          trail.push({ x: cur.x, y: cur.y, t: tNow });
+        }
+        // Keep ~140ms of trail
+        while (trail.length && tNow - trail[0]!.t > 140) trail.shift();
 
         ctx.save();
-        if (knife.complete && knife.naturalWidth > 0) {
-          drawImageCentered(ctx, knife, cur.x, cur.y, 78, 78, knifeAngle + Math.PI / 4, 0.95);
-        } else {
-          // Fallback if sprite failed to load.
-          ctx.shadowColor = "rgba(56,189,248,0.95)";
-          ctx.shadowBlur = 22;
-          ctx.strokeStyle = "rgba(255,255,255,0.92)";
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.arc(cur.x, cur.y, 28, 0, Math.PI * 2);
-          ctx.stroke();
+        // Trail first (older -> lower alpha)
+        for (let i = 1; i < trail.length; i++) {
+          const p0 = trail[i - 1]!;
+          const p1 = trail[i]!;
+          const ageMs = tNow - p1.t;
+          const fade = clamp01(1 - ageMs / 140);
+          drawNeonDottedSegment(ctx, p0.x, p0.y, p1.x, p1.y, 0.9 * fade);
         }
+
+        // Cursor dot
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "rgba(56,189,248,0.95)";
+        ctx.shadowColor = "rgba(56,189,248,1)";
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.arc(cur.x, cur.y, 6, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
+      } else {
+        // No cursor detected: clear trail so it doesn't “teleport” on re-acquire.
+        if (cursorTrailRef.current.length) cursorTrailRef.current = [];
       }
 
       // --- Phase overlay ---
@@ -308,6 +314,56 @@ function spriteForFruitKind(kind: string): { whole: SpriteKey; part1: SpriteKey;
     default:
       return { whole: "appleWhole", part1: "applePart1", part2: "applePart2" };
   }
+}
+
+function drawNeonDottedSegment(
+  ctx: CanvasRenderingContext2D,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  intensity: number,
+) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.5) return;
+
+  // Controls “smoothness” of the dotted look
+  const step = len < 80 ? 6 : 8;
+  const dots = Math.max(2, Math.ceil(len / step));
+
+  ctx.save();
+  ctx.shadowColor = "rgba(56,189,248,1)";
+  ctx.shadowBlur = 22 * intensity;
+
+  for (let i = 0; i <= dots; i++) {
+    const t = i / dots;
+    const x = ax + dx * t;
+    const y = ay + dy * t;
+
+    // Fade along the segment for a “comet” feel.
+    const along = 0.6 + 0.4 * (1 - t);
+    const a = 0.9 * intensity * along;
+
+    ctx.globalAlpha = a;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.beginPath();
+    ctx.arc(x, y, 3.6 * (0.6 + 0.4 * intensity), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.55 * a;
+    ctx.fillStyle = "rgba(56,189,248,0.95)";
+    ctx.beginPath();
+    ctx.arc(x, y, 2.4 * (0.6 + 0.4 * intensity), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function clamp01(v: number) {
+  return Math.max(0, Math.min(1, v));
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
