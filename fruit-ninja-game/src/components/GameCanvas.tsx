@@ -260,16 +260,15 @@ type SpriteKey =
   | "appleWhole"
   | "applePart1"
   | "applePart2"
-  | "grapesWhole"
-  | "grapesPart1"
-  | "grapesPart2"
-  | "candy4Whole"
-  | "candy4Part1"
-  | "candy4Part2"
-  | "candy1Whole"
-  | "candy1Part1"
-  | "candy1Part2"
-  | "knife";
+  | "orangeWhole"
+  | "orangePart1"
+  | "orangePart2"
+  | "pineappleWhole"
+  | "pineapplePart1"
+  | "pineapplePart2"
+  | "watermelonWhole"
+  | "watermelonPart1"
+  | "watermelonPart2";
 
 function createSpriteCache(): Record<SpriteKey, HTMLImageElement> {
   const make = (src: string) => {
@@ -279,30 +278,29 @@ function createSpriteCache(): Record<SpriteKey, HTMLImageElement> {
   };
 
   return {
-    appleWhole: make("/assets/slice-smash/fruits/apple.png"),
-    applePart1: make("/assets/slice-smash/sliced/apple_part1.png"),
-    applePart2: make("/assets/slice-smash/sliced/apple_part2.png"),
-    grapesWhole: make("/assets/slice-smash/fruits/grapes.png"),
-    grapesPart1: make("/assets/slice-smash/sliced/grapes_part1.png"),
-    grapesPart2: make("/assets/slice-smash/sliced/grapes_part2.png"),
-    candy4Whole: make("/assets/slice-smash/fruits/candy4.png"),
-    candy4Part1: make("/assets/slice-smash/sliced/candy4_part1.png"),
-    candy4Part2: make("/assets/slice-smash/sliced/candy4_part2.png"),
-    candy1Whole: make("/assets/slice-smash/fruits/candy1.png"),
-    candy1Part1: make("/assets/slice-smash/sliced/candy1_part1.png"),
-    candy1Part2: make("/assets/slice-smash/sliced/candy1_part2.png"),
-    knife: make("/assets/slice-smash/weapons/knife.png"),
+    appleWhole: make("/assets/fruit-ninja/apple.png"),
+    applePart1: make("/assets/fruit-ninja/apple_half_1.png"),
+    applePart2: make("/assets/fruit-ninja/apple_half_2.png"),
+    orangeWhole: make("/assets/fruit-ninja/orange.png"),
+    orangePart1: make("/assets/fruit-ninja/orange_half_1.png"),
+    orangePart2: make("/assets/fruit-ninja/orange_half_2.png"),
+    pineappleWhole: make("/assets/fruit-ninja/pineapple.png"),
+    pineapplePart1: make("/assets/fruit-ninja/pineapple_half_1.png"),
+    pineapplePart2: make("/assets/fruit-ninja/pineapple_half_2.png"),
+    watermelonWhole: make("/assets/fruit-ninja/watermelon.png"),
+    watermelonPart1: make("/assets/fruit-ninja/watermelon_half_1.png"),
+    watermelonPart2: make("/assets/fruit-ninja/watermelon_half_2.png"),
   };
 }
 
 function spriteForFruitKind(kind: string): { whole: SpriteKey; part1: SpriteKey; part2: SpriteKey } {
   switch (kind) {
     case "orange":
-      return { whole: "grapesWhole", part1: "grapesPart1", part2: "grapesPart2" };
+      return { whole: "orangeWhole", part1: "orangePart1", part2: "orangePart2" };
     case "lemon":
-      return { whole: "candy4Whole", part1: "candy4Part1", part2: "candy4Part2" };
+      return { whole: "pineappleWhole", part1: "pineapplePart1", part2: "pineapplePart2" };
     case "watermelon":
-      return { whole: "candy1Whole", part1: "candy1Part1", part2: "candy1Part2" };
+      return { whole: "watermelonWhole", part1: "watermelonPart1", part2: "watermelonPart2" };
     default:
       return { whole: "appleWhole", part1: "applePart1", part2: "applePart2" };
   }
