@@ -116,14 +116,19 @@ function fruitRadius(kind: FruitKind) {
   }
 }
 
-function spawnFruit(nowMs: number, w: number): Fruit {
+function spawnFruit(nowMs: number, w: number, h: number): Fruit {
   const kind = randomFruitKind();
   const radius = fruitRadius(kind);
-  const x = rand(radius + 24, w - radius - 24);
-  const y = -radius - 8;
-  // Throw upward with slight horizontal drift.
-  const vx = rand(-140, 140);
-  const vy = rand(-980, -760);
+
+  // Spawn just below the bottom edge, random x.
+  const x = rand(radius + 40, w - radius - 40);
+  const y = h + radius + 8;
+
+  // Launch upward — enough vertical velocity to reach ~60-80 % of screen height,
+  // plus a horizontal drift so the arc varies per fruit.
+  const vy = rand(-1100, -820);
+  const vx = rand(-200, 200);
+
   return {
     id: uuid(),
     kind,
@@ -165,7 +170,7 @@ export function stepGame(prev: GameState, input: StepInput): GameState {
   const minIntervalMs = 1000 / rate;
   if (nowMs - state.lastSpawnMs >= minIntervalMs) {
     state.lastSpawnMs = nowMs;
-    state.fruits = [...state.fruits, spawnFruit(nowMs, w)];
+    state.fruits = [...state.fruits, spawnFruit(nowMs, w, h)];
   }
 
   // Move fruits and apply physics.
@@ -181,11 +186,15 @@ export function stepGame(prev: GameState, input: StepInput): GameState {
     f.vel = { x: f.vel.x * Math.pow(drag, dt * 60), y: f.vel.y * Math.pow(drag, dt * 60) + gravity * dt };
     f.pos = { x: f.pos.x + f.vel.x * dt, y: f.pos.y + f.vel.y * dt };
 
-    const outBottom = f.pos.y - f.radius > h + 10;
-    if (!f.sliced && outBottom) {
+    // Miss = fruit came back down and fully crossed the bottom (fell off screen).
+    // Only penalise once it's heading downward, so the initial upward spawn doesn't trigger it.
+    const fellOffBottom = f.vel.y > 0 && f.pos.y - f.radius > h + 10;
+    if (!f.sliced && fellOffBottom) {
       lives -= 1;
       continue; // despawn missed fruit
     }
+    // Also despawn sliced fruits that fall off bottom (no penalty).
+    if (f.sliced && f.pos.y - f.radius > h + 60) continue;
 
     // Slash collision.
     if (!f.sliced && input.slash) {
