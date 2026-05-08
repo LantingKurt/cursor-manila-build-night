@@ -122,9 +122,9 @@ export default function Home() {
             <div className="font-extrabold text-white mb-1">How to play</div>
             <ul className="list-disc pl-5 space-y-1">
               <li>Enable Webcam (allows camera access)</li>
-              <li>Load Model (downloads hand-pose model once)</li>
+              <li>Load MediaPipe (downloads once, runs on GPU)</li>
               <li>Press Start — your live video is the game background</li>
-              <li>Move your <b>index finger</b> — see the ring cursor follow it</li>
+              <li>Move your <b>hand</b> — ring cursor tracks your palm</li>
               <li>Swipe quickly to <b>slash</b> fruits as they fly up</li>
             </ul>
           </div>
