@@ -1,3 +1,17 @@
+/**
+ * Hand detection via MediaPipe Tasks Vision (HandLandmarker).
+ * No TensorFlow dependency — pure @mediapipe/tasks-vision.
+ *
+ * MediaPipe Hand Landmarks (21 points):
+ *   0  = wrist
+ *   4  = thumb tip
+ *   8  = index finger tip
+ *   9  = middle finger MCP (knuckle)
+ *   12 = middle finger tip
+ *   16 = ring finger tip
+ *   20 = pinky tip
+ */
+
 import { nowMs } from "@/lib/utils";
 
 export type HandPoint = { x: number; y: number; z?: number };
@@ -8,8 +22,7 @@ export type HandDetectionResult = {
     keypoints: HandPoint[];
     score?: number;
   }>;
-  // A single "best" point for slashing control (e.g., index finger tip).
-  primaryPoint?: HandPoint;
+  primaryPoint?: HandPoint;  // palm-center used for cursor
   confidence: number;
 };
 
@@ -21,33 +34,26 @@ export type SlashEvent = {
 };
 
 export type HandDetectorState = {
-  // MediaPipe Tasks Vision (HandLandmarker) is loaded dynamically for bundler compatibility.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   detector: any | null;
   loading: boolean;
   error: string | null;
-  lastPoint: { x: number; y: number; tMs: number } | null;
+  // Track the palm center across frames for slash detection
+  lastPalm: { x: number; y: number; tMs: number } | null;
   lastSlashMs: number;
 };
 
 export function createHandDetectorState(): HandDetectorState {
-  return {
-    detector: null,
-    loading: false,
-    error: null,
-    lastPoint: null,
-    lastSlashMs: 0,
-  };
+  return { detector: null, loading: false, error: null, lastPalm: null, lastSlashMs: 0 };
 }
 
 export async function loadHandDetector(state: HandDetectorState): Promise<HandDetectorState> {
   if (state.detector || state.loading) return state;
   try {
     const s: HandDetectorState = { ...state, loading: true, error: null };
+
     const { FilesetResolver, HandLandmarker } = await import("@mediapipe/tasks-vision");
 
-    // Loads WASM + model assets from CDN by default.
-    // For production, copy assets under /public/models and point to your own path.
     const fileset = await FilesetResolver.forVisionTasks(
       "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm",
     );
@@ -56,9 +62,13 @@ export async function loadHandDetector(state: HandDetectorState): Promise<HandDe
       baseOptions: {
         modelAssetPath:
           "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+        delegate: "GPU",
       },
       runningMode: "VIDEO",
       numHands: 2,
+      minHandDetectionConfidence: 0.5,
+      minHandPresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
     });
 
     return { ...s, detector, loading: false };
@@ -73,15 +83,11 @@ export async function detectHands(
   video: HTMLVideoElement,
 ): Promise<{ result: HandDetectionResult; slash: SlashEvent | null; nextState: HandDetectorState }> {
   if (!state.detector) {
-    return {
-      result: { hands: [], confidence: 0 },
-      slash: null,
-      nextState: state,
-    };
+    return { result: { hands: [], confidence: 0 }, slash: null, nextState: state };
   }
 
   const tMs = nowMs();
-  // MediaPipe Tasks Vision returns landmarks normalized (0..1) + handedness.
+
   const mp = state.detector.detectForVideo(video, tMs) as {
     landmarks?: Array<Array<{ x: number; y: number; z?: number }>>;
     handednesses?: Array<Array<{ categoryName?: string; score?: number }>>;
@@ -92,14 +98,16 @@ export async function detectHands(
 
   const normalizedHands =
     mp.landmarks?.map((handLm, idx) => {
-      // Index finger tip is landmark 8 in MediaPipe Hands.
-      const indexTip = handLm[8];
-      if (!primaryPoint && indexTip) {
-        primaryPoint = {
-          x: indexTip.x * video.videoWidth,
-          y: indexTip.y * video.videoHeight,
-          z: indexTip.z,
-        };
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+
+      // Palm center = average of wrist (0) + all five MCP knuckles (1,5,9,13,17)
+      const palmIndices = [0, 1, 5, 9, 13, 17];
+      const palmX = palmIndices.reduce((s, i) => s + (handLm[i]?.x ?? 0), 0) / palmIndices.length;
+      const palmY = palmIndices.reduce((s, i) => s + (handLm[i]?.y ?? 0), 0) / palmIndices.length;
+
+      if (!primaryPoint) {
+        primaryPoint = { x: palmX * vw, y: palmY * vh };
       }
 
       const handed = mp.handednesses?.[idx]?.[0]?.categoryName ?? "Unknown";
@@ -107,38 +115,43 @@ export async function detectHands(
       confidence = Math.max(confidence, typeof score === "number" ? score : 0.6);
 
       return {
-        handedness: (handed === "Left" || handed === "Right" ? handed : "Unknown") as "Left" | "Right" | "Unknown",
-        keypoints: handLm.map((k) => ({ x: k.x * video.videoWidth, y: k.y * video.videoHeight, z: k.z })),
+        handedness: (handed === "Left" || handed === "Right" ? handed : "Unknown") as
+          | "Left"
+          | "Right"
+          | "Unknown",
+        keypoints: handLm.map((k) => ({ x: k.x * vw, y: k.y * vh, z: k.z })),
         score,
       };
     }) ?? [];
 
-  // Slash detection: based on primary point speed.
+  // --- Slash detection ---
+  // Use palm-center speed. Threshold tuned for a natural swipe gesture.
   let slash: SlashEvent | null = null;
   let nextState: HandDetectorState = state;
 
   if (primaryPoint) {
-    const p = { x: primaryPoint.x, y: primaryPoint.y, tMs };
-    if (state.lastPoint) {
-      const dt = Math.max(1, p.tMs - state.lastPoint.tMs) / 1000;
-      const dx = p.x - state.lastPoint.x;
-      const dy = p.y - state.lastPoint.y;
+    const palm = { x: primaryPoint.x, y: primaryPoint.y, tMs };
+
+    if (state.lastPalm) {
+      const dt = Math.max(1, palm.tMs - state.lastPalm.tMs) / 1000;
+      const dx = palm.x - state.lastPalm.x;
+      const dy = palm.y - state.lastPalm.y;
       const speed = Math.hypot(dx, dy) / dt;
 
-      // Default thresholds; game layer can gate with config too.
-      if (speed > 1100 && tMs - state.lastSlashMs > 110) {
+      // Slash fires on a fast lateral/diagonal swipe; cooldown stops double-fires.
+      if (speed > 900 && tMs - state.lastSlashMs > 90) {
         slash = {
-          a: { x: state.lastPoint.x, y: state.lastPoint.y },
-          b: { x: p.x, y: p.y },
+          a: { x: state.lastPalm.x, y: state.lastPalm.y },
+          b: { x: palm.x, y: palm.y },
           speedPxPerSec: speed,
           tMs,
         };
-        nextState = { ...state, lastSlashMs: tMs, lastPoint: p };
+        nextState = { ...state, lastSlashMs: tMs, lastPalm: palm };
       } else {
-        nextState = { ...state, lastPoint: p };
+        nextState = { ...state, lastPalm: palm };
       }
     } else {
-      nextState = { ...state, lastPoint: p };
+      nextState = { ...state, lastPalm: palm };
     }
   }
 
@@ -156,4 +169,3 @@ export async function detectHands(
 function clamp01(v: number) {
   return Math.max(0, Math.min(1, v));
 }
-
