@@ -101,13 +101,10 @@ export async function detectHands(
       const vw = video.videoWidth;
       const vh = video.videoHeight;
 
-      // Palm center = average of wrist (0) + all five MCP knuckles (1,5,9,13,17)
-      const palmIndices = [0, 1, 5, 9, 13, 17];
-      const palmX = palmIndices.reduce((s, i) => s + (handLm[i]?.x ?? 0), 0) / palmIndices.length;
-      const palmY = palmIndices.reduce((s, i) => s + (handLm[i]?.y ?? 0), 0) / palmIndices.length;
-
-      if (!primaryPoint) {
-        primaryPoint = { x: palmX * vw, y: palmY * vh };
+      // Cursor: index fingertip (lm 8) — precise, follows the fingertip the user sees.
+      const indexTip = handLm[8];
+      if (!primaryPoint && indexTip) {
+        primaryPoint = { x: indexTip.x * vw, y: indexTip.y * vh };
       }
 
       const handed = mp.handednesses?.[idx]?.[0]?.categoryName ?? "Unknown";

@@ -124,10 +124,10 @@ function spawnFruit(nowMs: number, w: number, h: number): Fruit {
   const x = rand(radius + 40, w - radius - 40);
   const y = h + radius + 8;
 
-  // Launch upward — enough vertical velocity to reach ~60-80 % of screen height,
-  // plus a horizontal drift so the arc varies per fruit.
-  const vy = rand(-1100, -820);
-  const vx = rand(-200, 200);
+  // Launch upward with enough velocity to arc well above the canvas.
+  // With gravity 580 px/s², vy=-900 gives apex ≈ 700px above spawn = ~top of screen.
+  const vy = rand(-960, -780);
+  const vx = rand(-180, 180);
 
   return {
     id: uuid(),
