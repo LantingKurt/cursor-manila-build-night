@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Controls } from "@/components/Controls";
 import { GameCanvas } from "@/components/GameCanvas";
 import { Leaderboard } from "@/components/Leaderboard";
@@ -9,45 +9,38 @@ import { gameConfig } from "@/constants/gameConfig";
 import { useGame } from "@/hooks/useGame";
 import { useHandDetection } from "@/hooks/useHandDetection";
 import { useWebcam } from "@/hooks/useWebcam";
+import type { Vec2 } from "@/lib/physics";
 
 export default function Home() {
   const game = useGame();
   const webcam = useWebcam();
-  const hand = useHandDetection(webcam.videoRef);
-  const lastSlashMsRef = useRef(0);
+  const cursorRef = useRef<Vec2 | null>(null);
 
-  // Map hand keypoint (video px) → canvas coords.
-  // X is flipped because the video is CSS-mirrored (scaleX(-1)) so visual left = raw right.
-  const cursor =
-    hand.result.primaryPoint && webcam.videoRef.current
-      ? {
-          x: (1 - hand.result.primaryPoint.x / (webcam.videoRef.current.videoWidth || 1)) * gameConfig.canvas.width,
-          y: (hand.result.primaryPoint.y / (webcam.videoRef.current.videoHeight || 1)) * gameConfig.canvas.height,
-        }
-      : null;
-
-  // Submit slash events via effect (never during render to avoid update loops).
-  useEffect(() => {
-    if (!hand.slash) return;
-    if (hand.slash.tMs === lastSlashMsRef.current) return;
-    lastSlashMsRef.current = hand.slash.tMs;
-
-    const v = webcam.videoRef.current;
-    if (!v || v.videoWidth <= 0 || v.videoHeight <= 0) return;
-
-    const vw = v.videoWidth;
-    const vh = v.videoHeight;
-    // Mirror x to match the CSS-flipped video display.
-    const a = {
-      x: (1 - hand.slash.a.x / vw) * gameConfig.canvas.width,
-      y: (hand.slash.a.y / vh) * gameConfig.canvas.height,
-    };
-    const b = {
-      x: (1 - hand.slash.b.x / vw) * gameConfig.canvas.width,
-      y: (hand.slash.b.y / vh) * gameConfig.canvas.height,
-    };
-    game.submitSlash(a, b, hand.slash.tMs);
-  }, [hand.slash, game, webcam.videoRef]);
+  const hand = useHandDetection(webcam.videoRef, {
+    onCursor: (p) => {
+      const v = webcam.videoRef.current;
+      if (!v || !p || v.videoWidth <= 0 || v.videoHeight <= 0) {
+        cursorRef.current = null;
+        return;
+      }
+      // Map hand keypoint (video px) → canvas coords.
+      // X is flipped because the video is CSS-mirrored (scaleX(-1)) so visual left = raw right.
+      cursorRef.current = {
+        x: (1 - p.x / v.videoWidth) * gameConfig.canvas.width,
+        y: (p.y / v.videoHeight) * gameConfig.canvas.height,
+      };
+    },
+    onSlash: (sl) => {
+      const v = webcam.videoRef.current;
+      if (!v || v.videoWidth <= 0 || v.videoHeight <= 0) return;
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      // Mirror x to match the CSS-flipped video display.
+      const a = { x: (1 - sl.a.x / vw) * gameConfig.canvas.width, y: (sl.a.y / vh) * gameConfig.canvas.height };
+      const b = { x: (1 - sl.b.x / vw) * gameConfig.canvas.width, y: (sl.b.y / vh) * gameConfig.canvas.height };
+      game.submitSlash(a, b, sl.tMs);
+    },
+  });
 
   const leaderboardEnabled = process.env.NEXT_PUBLIC_LEADERBOARD_ENABLED !== "false";
 
@@ -94,7 +87,7 @@ export default function Home() {
           <GameCanvas
             state={game.state}
             videoRef={webcam.videoRef}
-            cursor={cursor}
+            cursorRef={cursorRef}
           />
           {webcam.state.status === "error" && (
             <div className="mt-2 text-sm text-rose-400">

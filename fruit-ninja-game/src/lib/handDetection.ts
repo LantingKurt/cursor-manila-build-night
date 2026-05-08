@@ -41,10 +41,21 @@ export type HandDetectorState = {
   // Wrist (lm 0) tracked for slash — more stable than fingertip.
   lastWrist: { x: number; y: number; tMs: number } | null;
   lastSlashMs: number;
+  // Smoothed cursor to reduce jitter (time-based low-pass).
+  lastCursorRaw: { x: number; y: number; tMs: number } | null;
+  lastCursorSmoothed: { x: number; y: number; tMs: number } | null;
 };
 
 export function createHandDetectorState(): HandDetectorState {
-  return { detector: null, loading: false, error: null, lastWrist: null, lastSlashMs: 0 };
+  return {
+    detector: null,
+    loading: false,
+    error: null,
+    lastWrist: null,
+    lastSlashMs: 0,
+    lastCursorRaw: null,
+    lastCursorSmoothed: null,
+  };
 }
 
 export async function loadHandDetector(state: HandDetectorState): Promise<HandDetectorState> {
@@ -165,6 +176,42 @@ export async function detectHands(
       }
     } else {
       nextState = { ...state, lastWrist: cur };
+    }
+  }
+
+  // --- Cursor smoothing (reduces jitter without noticeable lag) ---
+  // Only affects `primaryPoint` (used for cursor rendering). Slash detection stays on wrist.
+  if (primaryPoint) {
+    const raw = { x: primaryPoint.x, y: primaryPoint.y, tMs };
+    const prevSmooth = nextState.lastCursorSmoothed;
+
+    // Time-based low-pass: alpha derived from dt and tau.
+    const tauMs = 55; // smaller = snappier; larger = smoother
+    const dtMs = prevSmooth ? Math.max(0, raw.tMs - prevSmooth.tMs) : 0;
+    const alpha = prevSmooth ? 1 - Math.exp(-dtMs / tauMs) : 1;
+
+    let sx = prevSmooth ? prevSmooth.x + (raw.x - prevSmooth.x) * alpha : raw.x;
+    let sy = prevSmooth ? prevSmooth.y + (raw.y - prevSmooth.y) * alpha : raw.y;
+
+    // Small deadband to remove micro-jitter when the hand is “still”.
+    if (prevSmooth) {
+      const d = Math.hypot(sx - prevSmooth.x, sy - prevSmooth.y);
+      if (d < 1.25) {
+        sx = prevSmooth.x;
+        sy = prevSmooth.y;
+      }
+    }
+
+    nextState = {
+      ...nextState,
+      lastCursorRaw: raw,
+      lastCursorSmoothed: { x: sx, y: sy, tMs: raw.tMs },
+    };
+    primaryPoint = { x: sx, y: sy };
+  } else {
+    // Lost cursor: reset smoothing so it doesn't “snap back” when reacquired.
+    if (nextState.lastCursorSmoothed || nextState.lastCursorRaw) {
+      nextState = { ...nextState, lastCursorRaw: null, lastCursorSmoothed: null };
     }
   }
 

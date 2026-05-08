@@ -7,11 +7,16 @@ export type HandTrackingState =
   | { status: "ready" }
   | { status: "error"; message: string };
 
-export function useHandDetection(videoRef: React.RefObject<HTMLVideoElement | null>) {
+type Options = {
+  onCursor?: (p: { x: number; y: number } | null) => void;
+  onSlash?: (s: SlashEvent) => void;
+};
+
+export function useHandDetection(videoRef: React.RefObject<HTMLVideoElement | null>, options: Options = {}) {
   const detectorRef = React.useRef(createHandDetectorState());
   const [state, setState] = React.useState<HandTrackingState>({ status: "idle" });
   const [result, setResult] = React.useState<HandDetectionResult>({ hands: [], confidence: 0 });
-  const [slash, setSlash] = React.useState<SlashEvent | null>(null);
+  const lastUiUpdateMsRef = React.useRef(0);
 
   const start = React.useCallback(async () => {
     setState({ status: "loadingModel" });
@@ -40,8 +45,19 @@ export function useHandDetection(videoRef: React.RefObject<HTMLVideoElement | nu
           const out = await detectHands(detectorRef.current, video);
           if (!alive) return;
           detectorRef.current = out.nextState;
-          setResult(out.result);
-          if (out.slash) setSlash(out.slash);
+
+          // Hot path: update cursor via callback without forcing React re-renders.
+          options.onCursor?.(out.result.primaryPoint ? { x: out.result.primaryPoint.x, y: out.result.primaryPoint.y } : null);
+
+          // Hot path: fire slashes directly.
+          if (out.slash) options.onSlash?.(out.slash);
+
+          // Cold path UI: throttle React state updates (confidence panel, etc).
+          const now = performance.now();
+          if (now - lastUiUpdateMsRef.current >= 160) {
+            lastUiUpdateMsRef.current = now;
+            setResult(out.result);
+          }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           setState({ status: "error", message: msg });
@@ -56,8 +72,8 @@ export function useHandDetection(videoRef: React.RefObject<HTMLVideoElement | nu
       alive = false;
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [state.status, videoRef]);
+  }, [state.status, videoRef, options]);
 
-  return { state, start, result, slash };
+  return { state, start, result };
 }
 
