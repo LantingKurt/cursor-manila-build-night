@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Controls } from "@/components/Controls";
 import { GameCanvas } from "@/components/GameCanvas";
 import { Leaderboard } from "@/components/Leaderboard";
@@ -14,6 +15,26 @@ export default function Home() {
   const game = useGame();
   const webcam = useWebcam();
   const hand = useHandDetection(webcam.videoRef);
+  const debugRef = useRef({ lastSlashMs: 0, renderCount: 0 });
+
+  // #region agent log
+  debugRef.current.renderCount += 1;
+  if (debugRef.current.renderCount <= 3) {
+    fetch("http://127.0.0.1:7723/ingest/c9380e78-3eea-49c4-9a01-43685a1d3819", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e738c9" },
+      body: JSON.stringify({
+        sessionId: "e738c9",
+        runId: "pre-fix",
+        hypothesisId: "H2",
+        location: "src/app/page.tsx:render",
+        message: "Home render",
+        data: { renderCount: debugRef.current.renderCount, slash: !!hand.slash, webcamStatus: webcam.state.status, handStatus: hand.state.status },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  }
+  // #endregion agent log
 
   // Map the detector's primary point (video pixel coords) into canvas coords.
   const cursor =
@@ -27,6 +48,25 @@ export default function Home() {
   // When slash detected, submit into game engine (in canvas coordinates).
   // This is deliberately simple boilerplate; refine by using the raw SlashEvent points.
   if (hand.slash && webcam.videoRef.current) {
+    // #region agent log
+    if (debugRef.current.lastSlashMs !== hand.slash.tMs) {
+      debugRef.current.lastSlashMs = hand.slash.tMs;
+      fetch("http://127.0.0.1:7723/ingest/c9380e78-3eea-49c4-9a01-43685a1d3819", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e738c9" },
+        body: JSON.stringify({
+          sessionId: "e738c9",
+          runId: "pre-fix",
+          hypothesisId: "H2",
+          location: "src/app/page.tsx:renderSlashBlock",
+          message: "Submitting slash from render path",
+          data: { tMs: hand.slash.tMs, speed: hand.slash.speedPxPerSec },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    }
+    // #endregion agent log
+
     const vw = webcam.videoRef.current.videoWidth || 1;
     const vh = webcam.videoRef.current.videoHeight || 1;
     const a = { x: (hand.slash.a.x / vw) * gameConfig.canvas.width, y: (hand.slash.a.y / vh) * gameConfig.canvas.height };
