@@ -7,109 +7,175 @@ import type { Vec2 } from "@/lib/physics";
 
 type Props = {
   state: GameState;
-  onResize?: (size: { w: number; h: number }) => void;
-  // Optional cursor (e.g. index finger tip) for debug/UX.
+  // videoRef from useWebcam — the webcam stream is attached here
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   cursor?: Vec2 | null;
 };
 
-export function GameCanvas({ state, cursor }: Props) {
+export function GameCanvas({ state, videoRef, cursor }: Props) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 
+  // Keep latest state/cursor in refs so the RAF loop doesn't need to restart.
+  const stateRef = React.useRef(state);
+  const cursorRef = React.useRef(cursor);
+  React.useEffect(() => { stateRef.current = state; }, [state]);
+  React.useEffect(() => { cursorRef.current = cursor; }, [cursor]);
+
+  // Single-mounted RAF draw loop. Reads from refs each frame.
   React.useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
-    const ctx = c.getContext("2d", { alpha: false });
+    // alpha:true so the canvas is transparent and the video shows through.
+    const ctx = c.getContext("2d", { alpha: true });
     if (!ctx) return;
 
-    const w = gameConfig.canvas.width;
-    const h = gameConfig.canvas.height;
-    c.width = w;
-    c.height = h;
+    c.width = gameConfig.canvas.width;
+    c.height = gameConfig.canvas.height;
+    const w = c.width;
+    const h = c.height;
+
+    let rafId = 0;
 
     const draw = () => {
-      // Background
-      ctx.fillStyle = "#06121b";
+      const s = stateRef.current;
+      const cur = cursorRef.current;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Dark translucent tint so bright webcam doesn't wash out fruits
+      ctx.fillStyle = "rgba(0,0,0,0.38)";
       ctx.fillRect(0, 0, w, h);
 
-      // Arena
-      ctx.fillStyle = "#0b5f79";
-      roundRect(ctx, 18, 18, w - 36, h - 36, 20);
-      ctx.fill();
-
-      // Fruits
-      for (const f of state.fruits) {
+      // --- Fruits ---
+      for (const f of s.fruits) {
         ctx.save();
-        ctx.globalAlpha = f.sliced ? 0.55 : 1;
+        ctx.globalAlpha = f.sliced ? 0.45 : 1;
+        ctx.shadowColor = fruitColor(f.kind);
+        ctx.shadowBlur = 20;
         ctx.fillStyle = fruitColor(f.kind);
         ctx.beginPath();
         ctx.arc(f.pos.x, f.pos.y, f.radius, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
-      }
-
-      // Slash trails
-      ctx.save();
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      for (const s of state.slashes) {
-        const age = (performance.now() - s.tMs) / 1000;
-        const a = Math.max(0, 1 - age / gameConfig.slash.trailSeconds);
-        ctx.globalAlpha = 0.35 * a;
-        ctx.strokeStyle = "rgba(255,255,255,0.9)";
-        ctx.lineWidth = 10 * a + 2;
+        // Shine highlight
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha *= 0.38;
+        ctx.fillStyle = "#fff";
         ctx.beginPath();
-        ctx.moveTo(s.a.x, s.a.y);
-        ctx.lineTo(s.b.x, s.b.y);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // Cursor
-      if (cursor) {
-        ctx.save();
-        ctx.fillStyle = "rgba(56,189,248,0.9)";
-        ctx.beginPath();
-        ctx.arc(cursor.x, cursor.y, 6, 0, Math.PI * 2);
+        ctx.arc(f.pos.x - f.radius * 0.28, f.pos.y - f.radius * 0.32, f.radius * 0.36, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
 
-      // Overlay text
+      // --- Slash trails ---
       ctx.save();
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.font = "800 16px ui-sans-serif, system-ui";
-      ctx.textAlign = "center";
-      if (state.phase === "menu") ctx.fillText("Click Start → allow webcam → slash fruits", w / 2, h / 2);
-      if (state.phase === "paused") ctx.fillText("Paused", w / 2, h / 2);
-      if (state.phase === "gameOver") ctx.fillText("Game Over — Reset to play again", w / 2, h / 2);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      for (const sl of s.slashes) {
+        const age = (performance.now() - sl.tMs) / 1000;
+        const a = Math.max(0, 1 - age / gameConfig.slash.trailSeconds);
+        ctx.globalAlpha = 0.75 * a;
+        ctx.lineWidth = 14 * a + 3;
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.shadowColor = "rgba(100,200,255,0.9)";
+        ctx.shadowBlur = 22 * a;
+        ctx.beginPath();
+        ctx.moveTo(sl.a.x, sl.a.y);
+        ctx.lineTo(sl.b.x, sl.b.y);
+        ctx.stroke();
+      }
       ctx.restore();
+
+      // --- Finger cursor ring ---
+      if (cur) {
+        ctx.save();
+        // Outer glow ring
+        ctx.shadowColor = "rgba(56,189,248,0.95)";
+        ctx.shadowBlur = 22;
+        ctx.strokeStyle = "rgba(255,255,255,0.92)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(cur.x, cur.y, 28, 0, Math.PI * 2);
+        ctx.stroke();
+        // Second inner ring
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cur.x, cur.y, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        // Center dot
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "rgba(56,189,248,0.88)";
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(cur.x, cur.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // --- Phase overlay ---
+      drawPhaseOverlay(ctx, s.phase, w, h);
+
+      rafId = requestAnimationFrame(draw);
     };
 
-    const raf = requestAnimationFrame(function tick() {
-      draw();
-      requestAnimationFrame(tick);
-    });
-
-    return () => cancelAnimationFrame(raf);
-  }, [state, cursor]);
+    rafId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafId);
+  }, []); // intentionally empty — reads state/cursor via refs
 
   return (
-    <div className="panel p-0 overflow-hidden">
-      <canvas ref={canvasRef} className="w-full h-auto aspect-[900/560] block" />
+    <div
+      className="relative w-full overflow-hidden rounded-2xl border border-white/12 shadow-2xl bg-black"
+      style={{ aspectRatio: "900/560" }}
+    >
+      {/* Webcam video — fills the full container, horizontally mirrored */}
+      <video
+        ref={videoRef}
+        className="absolute inset-0 w-full h-full object-cover [transform:scaleX(-1)]"
+        playsInline
+        muted
+        autoPlay
+      />
+      {/* Transparent game canvas sits on top */}
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
     </div>
   );
 }
 
+function drawPhaseOverlay(ctx: CanvasRenderingContext2D, phase: string, w: number, h: number) {
+  if (phase === "playing") return;
+  const messages: Record<string, [string, string]> = {
+    menu:     ["rgba(255,255,255,0.94)", "Enable Webcam → Load Model → Start"],
+    paused:   ["rgba(255,255,255,0.94)", "Paused"],
+    gameOver: ["rgba(255,84,112,0.96)",  "Game Over — Reset to play again"],
+  };
+  const [color, text] = messages[phase] ?? ["rgba(255,255,255,0.94)", ""];
+  if (!text) return;
+
+  ctx.save();
+  ctx.font = "800 18px ui-sans-serif, system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const tw = ctx.measureText(text).width;
+  const boxW = tw + 56;
+  const boxH = 50;
+  const bx = (w - boxW) / 2;
+  const by = h / 2 - boxH / 2;
+
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  roundRect(ctx, bx, by, boxW, boxH, 14);
+  ctx.fill();
+
+  ctx.fillStyle = color;
+  ctx.fillText(text, w / 2, h / 2);
+  ctx.restore();
+}
+
 function fruitColor(kind: string) {
   switch (kind) {
-    case "watermelon":
-      return "#34d399";
-    case "orange":
-      return "#fb923c";
-    case "lemon":
-      return "#facc15";
-    default:
-      return "#fb7185";
+    case "watermelon": return "#34d399";
+    case "orange":     return "#fb923c";
+    case "lemon":      return "#facc15";
+    default:           return "#fb7185";
   }
 }
 
@@ -128,4 +194,3 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
 }
-
