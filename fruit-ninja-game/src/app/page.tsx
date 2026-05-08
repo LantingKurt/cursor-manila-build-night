@@ -76,10 +76,10 @@ export default function Home() {
             disabled={hand.state.status === "loadingModel" || hand.state.status === "ready"}
           >
             {hand.state.status === "loadingModel"
-              ? "Loading Model…"
+              ? "Loading MediaPipe…"
               : hand.state.status === "ready"
-              ? "Model Ready"
-              : "Load Model"}
+              ? "MediaPipe Ready ✓"
+              : "Load MediaPipe"}
           </button>
         </div>
       </header>
