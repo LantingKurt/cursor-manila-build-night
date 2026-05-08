@@ -7,19 +7,26 @@ export function WebcamFeed({
   videoRef,
   webcamStatus,
   hand,
+  className,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   webcamStatus: string;
   hand: HandDetectionResult;
+  className?: string;
 }) {
   return (
-    <div className="panel p-3">
+    <div className={`panel p-3 ${className ?? ""}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="font-extrabold tracking-tight">Webcam</div>
         <div className="text-xs text-white/60">{webcamStatus}</div>
       </div>
       <div className="mt-2">
-        <video ref={videoRef} className="w-full rounded-xl border border-white/10 bg-black/30" playsInline muted />
+        <video
+          ref={videoRef}
+          className="w-full rounded-xl border border-white/10 bg-black/30 [transform:scaleX(-1)]"
+          playsInline
+          muted
+        />
       </div>
       <div className="mt-2 text-xs text-white/70">
         Detection confidence: <span className="font-bold">{Math.round(hand.confidence * 100)}%</span>

@@ -2,6 +2,7 @@ import * as React from "react";
 import { gameConfig } from "@/constants/gameConfig";
 import { createInitialState, setPaused, startGame, stepGame, type GameState } from "@/lib/gameEngine";
 import type { Vec2 } from "@/lib/physics";
+import { debugLog } from "@/lib/debugLog";
 
 export function useGame() {
   const [state, setState] = React.useState<GameState>(() => createInitialState(performance.now()));
@@ -37,19 +38,15 @@ export function useGame() {
   React.useEffect(() => {
     // #region agent log
     debugRef.current.mounts += 1;
-    fetch("http://127.0.0.1:7723/ingest/c9380e78-3eea-49c4-9a01-43685a1d3819", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e738c9" },
-      body: JSON.stringify({
-        sessionId: "e738c9",
-        runId: "pre-fix",
-        hypothesisId: "H3",
-        location: "src/hooks/useGame.ts:useEffect",
-        message: "RAF effect mounted",
-        data: { mounts: debugRef.current.mounts },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
+    debugLog({
+      sessionId: "e738c9",
+      runId: "pre-fix",
+      hypothesisId: "H3",
+      location: "src/hooks/useGame.ts:useEffect",
+      message: "RAF effect mounted",
+      data: { mounts: debugRef.current.mounts },
+      timestamp: Date.now(),
+    });
     // #endregion agent log
 
     let raf = 0;
@@ -62,19 +59,15 @@ export function useGame() {
       // #region agent log
       debugRef.current.ticks += 1;
       if (debugRef.current.ticks <= 3) {
-        fetch("http://127.0.0.1:7723/ingest/c9380e78-3eea-49c4-9a01-43685a1d3819", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e738c9" },
-          body: JSON.stringify({
-            sessionId: "e738c9",
-            runId: "pre-fix",
-            hypothesisId: "H3",
-            location: "src/hooks/useGame.ts:tick",
-            message: "tick -> setState(stepGame)",
-            data: { ticks: debugRef.current.ticks, dt },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
+        debugLog({
+          sessionId: "e738c9",
+          runId: "pre-fix",
+          hypothesisId: "H3",
+          location: "src/hooks/useGame.ts:tick",
+          message: "tick -> setState(stepGame)",
+          data: { ticks: debugRef.current.ticks, dt },
+          timestamp: Date.now(),
+        });
       }
       // #endregion agent log
       setState((s) =>
@@ -90,19 +83,15 @@ export function useGame() {
     raf = requestAnimationFrame(tick);
     return () => {
       // #region agent log
-      fetch("http://127.0.0.1:7723/ingest/c9380e78-3eea-49c4-9a01-43685a1d3819", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e738c9" },
-        body: JSON.stringify({
-          sessionId: "e738c9",
-          runId: "pre-fix",
-          hypothesisId: "H3",
-          location: "src/hooks/useGame.ts:cleanup",
-          message: "RAF effect cleanup",
-          data: { ticks: debugRef.current.ticks },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
+      debugLog({
+        sessionId: "e738c9",
+        runId: "pre-fix",
+        hypothesisId: "H3",
+        location: "src/hooks/useGame.ts:cleanup",
+        message: "RAF effect cleanup",
+        data: { ticks: debugRef.current.ticks },
+        timestamp: Date.now(),
+      });
       // #endregion agent log
       cancelAnimationFrame(raf);
     };

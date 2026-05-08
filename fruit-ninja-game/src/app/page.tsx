@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Controls } from "@/components/Controls";
 import { GameCanvas } from "@/components/GameCanvas";
 import { Leaderboard } from "@/components/Leaderboard";
@@ -10,6 +10,7 @@ import { gameConfig } from "@/constants/gameConfig";
 import { useGame } from "@/hooks/useGame";
 import { useHandDetection } from "@/hooks/useHandDetection";
 import { useWebcam } from "@/hooks/useWebcam";
+import { debugLog } from "@/lib/debugLog";
 
 export default function Home() {
   const game = useGame();
@@ -20,19 +21,20 @@ export default function Home() {
   // #region agent log
   debugRef.current.renderCount += 1;
   if (debugRef.current.renderCount <= 3) {
-    fetch("http://127.0.0.1:7723/ingest/c9380e78-3eea-49c4-9a01-43685a1d3819", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e738c9" },
-      body: JSON.stringify({
-        sessionId: "e738c9",
-        runId: "pre-fix",
-        hypothesisId: "H2",
-        location: "src/app/page.tsx:render",
-        message: "Home render",
-        data: { renderCount: debugRef.current.renderCount, slash: !!hand.slash, webcamStatus: webcam.state.status, handStatus: hand.state.status },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
+    debugLog({
+      sessionId: "e738c9",
+      runId: "pre-fix",
+      hypothesisId: "H2",
+      location: "src/app/page.tsx:render",
+      message: "Home render",
+      data: {
+        renderCount: debugRef.current.renderCount,
+        slash: !!hand.slash,
+        webcamStatus: webcam.state.status,
+        handStatus: hand.state.status,
+      },
+      timestamp: Date.now(),
+    });
   }
   // #endregion agent log
 
@@ -47,32 +49,32 @@ export default function Home() {
 
   // When slash detected, submit into game engine (in canvas coordinates).
   // This is deliberately simple boilerplate; refine by using the raw SlashEvent points.
-  if (hand.slash && webcam.videoRef.current) {
+  useEffect(() => {
+    if (!hand.slash) return;
+    const v = webcam.videoRef.current;
+    if (!v) return;
+    if (v.videoWidth <= 0 || v.videoHeight <= 0) return;
+    if (debugRef.current.lastSlashMs === hand.slash.tMs) return;
+    debugRef.current.lastSlashMs = hand.slash.tMs;
+
     // #region agent log
-    if (debugRef.current.lastSlashMs !== hand.slash.tMs) {
-      debugRef.current.lastSlashMs = hand.slash.tMs;
-      fetch("http://127.0.0.1:7723/ingest/c9380e78-3eea-49c4-9a01-43685a1d3819", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e738c9" },
-        body: JSON.stringify({
-          sessionId: "e738c9",
-          runId: "pre-fix",
-          hypothesisId: "H2",
-          location: "src/app/page.tsx:renderSlashBlock",
-          message: "Submitting slash from render path",
-          data: { tMs: hand.slash.tMs, speed: hand.slash.speedPxPerSec },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-    }
+    debugLog({
+      sessionId: "e738c9",
+      runId: "pre-fix",
+      hypothesisId: "H2",
+      location: "src/app/page.tsx:slashEffect",
+      message: "Submitting slash from effect",
+      data: { tMs: hand.slash.tMs, speed: hand.slash.speedPxPerSec },
+      timestamp: Date.now(),
+    });
     // #endregion agent log
 
-    const vw = webcam.videoRef.current.videoWidth || 1;
-    const vh = webcam.videoRef.current.videoHeight || 1;
+    const vw = v.videoWidth || 1;
+    const vh = v.videoHeight || 1;
     const a = { x: (hand.slash.a.x / vw) * gameConfig.canvas.width, y: (hand.slash.a.y / vh) * gameConfig.canvas.height };
     const b = { x: (hand.slash.b.x / vw) * gameConfig.canvas.width, y: (hand.slash.b.y / vh) * gameConfig.canvas.height };
     game.submitSlash(a, b, hand.slash.tMs);
-  }
+  }, [hand.slash, game, webcam.videoRef]);
 
   const leaderboardEnabled = process.env.NEXT_PUBLIC_LEADERBOARD_ENABLED !== "false";
 
@@ -94,8 +96,15 @@ export default function Home() {
       </header>
 
       <main className="px-5 pb-6 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 items-start">
-        <section className="min-w-0">
+        <section className="min-w-0 relative">
           <GameCanvas state={game.state} cursor={cursor} />
+
+          <WebcamFeed
+            videoRef={webcam.videoRef}
+            webcamStatus={webcam.state.status}
+            hand={hand.result}
+            className="absolute right-3 bottom-3 w-[220px] md:w-[260px] shadow-2xl"
+          />
         </section>
 
         <aside className="flex flex-col gap-3">
@@ -106,11 +115,6 @@ export default function Home() {
             onPause={game.pause}
             onResume={game.resume}
             onReset={game.reset}
-          />
-          <WebcamFeed
-            videoRef={webcam.videoRef}
-            webcamStatus={webcam.state.status}
-            hand={hand.result}
           />
           <Leaderboard enabled={leaderboardEnabled} />
           <div className="panel p-3 text-sm text-white/70 leading-relaxed">
