@@ -30,21 +30,25 @@ export function useHandDetection(videoRef: React.RefObject<HTMLVideoElement | nu
     let raf = 0;
     let alive = true;
 
+    // Non-overlapping loop: schedule next frame only AFTER current detect finishes.
+    // This prevents race conditions on detectorRef when async detects pile up.
     const tick = async () => {
       if (!alive) return;
-      raf = requestAnimationFrame(tick);
       const video = videoRef.current;
-      if (!video || video.readyState < 2) return;
-
-      try {
-        const out = await detectHands(detectorRef.current, video);
-        detectorRef.current = out.nextState;
-        setResult(out.result);
-        setSlash(out.slash);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setState({ status: "error", message: msg });
+      if (video && video.readyState >= 2) {
+        try {
+          const out = await detectHands(detectorRef.current, video);
+          if (!alive) return;
+          detectorRef.current = out.nextState;
+          setResult(out.result);
+          if (out.slash) setSlash(out.slash);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setState({ status: "error", message: msg });
+          return;
+        }
       }
+      if (alive) raf = requestAnimationFrame(tick);
     };
 
     raf = requestAnimationFrame(tick);

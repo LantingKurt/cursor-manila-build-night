@@ -38,13 +38,13 @@ export type HandDetectorState = {
   detector: any | null;
   loading: boolean;
   error: string | null;
-  // Track the palm center across frames for slash detection
-  lastPalm: { x: number; y: number; tMs: number } | null;
+  // Wrist (lm 0) tracked for slash — more stable than fingertip.
+  lastWrist: { x: number; y: number; tMs: number } | null;
   lastSlashMs: number;
 };
 
 export function createHandDetectorState(): HandDetectorState {
-  return { detector: null, loading: false, error: null, lastPalm: null, lastSlashMs: 0 };
+  return { detector: null, loading: false, error: null, lastWrist: null, lastSlashMs: 0 };
 }
 
 export async function loadHandDetector(state: HandDetectorState): Promise<HandDetectorState> {
@@ -96,15 +96,24 @@ export async function detectHands(
   let primaryPoint: HandPoint | undefined;
   let confidence = 0;
 
+  // First hand's wrist (lm 0) — used for slash speed (stable, not jittery like fingertip).
+  let wristPoint: { x: number; y: number } | undefined;
+
   const normalizedHands =
     mp.landmarks?.map((handLm, idx) => {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
 
-      // Cursor: index fingertip (lm 8) — precise, follows the fingertip the user sees.
+      // Cursor: index fingertip (lm 8) — precise, follows the tip the user sees.
       const indexTip = handLm[8];
       if (!primaryPoint && indexTip) {
         primaryPoint = { x: indexTip.x * vw, y: indexTip.y * vh };
+      }
+
+      // Wrist for slash detection.
+      const wrist = handLm[0];
+      if (!wristPoint && wrist) {
+        wristPoint = { x: wrist.x * vw, y: wrist.y * vh };
       }
 
       const handed = mp.handednesses?.[idx]?.[0]?.categoryName ?? "Unknown";
@@ -121,34 +130,40 @@ export async function detectHands(
       };
     }) ?? [];
 
-  // --- Slash detection ---
-  // Use palm-center speed. Threshold tuned for a natural swipe gesture.
+  // --- Slash detection via wrist movement ---
+  // Wrist is the most stable landmark. Low threshold so casual swipes register.
+  // Cooldown of 60ms prevents one swipe firing multiple slashes.
   let slash: SlashEvent | null = null;
   let nextState: HandDetectorState = state;
 
-  if (primaryPoint) {
-    const palm = { x: primaryPoint.x, y: primaryPoint.y, tMs };
+  const trackPt = wristPoint ?? (primaryPoint ? { x: primaryPoint.x, y: primaryPoint.y } : undefined);
 
-    if (state.lastPalm) {
-      const dt = Math.max(1, palm.tMs - state.lastPalm.tMs) / 1000;
-      const dx = palm.x - state.lastPalm.x;
-      const dy = palm.y - state.lastPalm.y;
+  if (trackPt) {
+    const cur = { x: trackPt.x, y: trackPt.y, tMs };
+
+    if (state.lastWrist) {
+      const dt = Math.max(1, cur.tMs - state.lastWrist.tMs) / 1000;
+      const dx = cur.x - state.lastWrist.x;
+      const dy = cur.y - state.lastWrist.y;
       const speed = Math.hypot(dx, dy) / dt;
 
-      // Slash fires on a fast lateral/diagonal swipe; cooldown stops double-fires.
-      if (speed > 900 && tMs - state.lastSlashMs > 90) {
+      // Threshold 280 px/s on the wrist — easy to trigger with a normal swipe.
+      if (speed > 280 && tMs - state.lastSlashMs > 60) {
+        // Extend the slash segment to the fingertip for a more natural hit area.
+        const ax = primaryPoint ? primaryPoint.x : state.lastWrist.x;
+        const ay = primaryPoint ? primaryPoint.y : state.lastWrist.y;
         slash = {
-          a: { x: state.lastPalm.x, y: state.lastPalm.y },
-          b: { x: palm.x, y: palm.y },
+          a: { x: state.lastWrist.x, y: state.lastWrist.y },
+          b: { x: ax, y: ay },
           speedPxPerSec: speed,
           tMs,
         };
-        nextState = { ...state, lastSlashMs: tMs, lastPalm: palm };
+        nextState = { ...state, lastSlashMs: tMs, lastWrist: cur };
       } else {
-        nextState = { ...state, lastPalm: palm };
+        nextState = { ...state, lastWrist: cur };
       }
     } else {
-      nextState = { ...state, lastPalm: palm };
+      nextState = { ...state, lastWrist: cur };
     }
   }
 
