@@ -9,21 +9,19 @@ type Props = {
   state: GameState;
   // videoRef from useWebcam — the webcam stream is attached here
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  cursor?: Vec2 | null;
+  cursorRef: React.RefObject<Vec2 | null>;
 };
 
-export function GameCanvas({ state, videoRef, cursor }: Props) {
+export function GameCanvas({ state, videoRef, cursorRef }: Props) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const spritesRef = React.useRef(createSpriteCache());
 
   // Keep latest state/cursor in refs so the RAF loop doesn't need to restart.
   const stateRef = React.useRef(state);
-  const cursorRef = React.useRef(cursor);
   const cursorTrailRef = React.useRef<Array<{ x: number; y: number; t: number }>>([]);
   const emittedSliceIdsRef = React.useRef<Set<string>>(new Set());
   const splashFxRef = React.useRef<Array<SplashFx>>([]);
   React.useEffect(() => { stateRef.current = state; }, [state]);
-  React.useEffect(() => { cursorRef.current = cursor; }, [cursor]);
 
   // Single-mounted RAF draw loop. Reads from refs each frame.
   React.useEffect(() => {
@@ -122,18 +120,12 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
         if (!last || Math.hypot(cur.x - last.x, cur.y - last.y) >= 3) {
           trail.push({ x: cur.x, y: cur.y, t: tNow });
         }
-        // Keep ~140ms of trail
-        while (trail.length && tNow - trail[0]!.t > 140) trail.shift();
+        // Keep ~220ms of trail for smoother look
+        while (trail.length && tNow - trail[0]!.t > 220) trail.shift();
 
         ctx.save();
-        // Trail first (older -> lower alpha)
-        for (let i = 1; i < trail.length; i++) {
-          const p0 = trail[i - 1]!;
-          const p1 = trail[i]!;
-          const ageMs = tNow - p1.t;
-          const fade = clamp01(1 - ageMs / 140);
-          drawNeonDottedSegment(ctx, p0.x, p0.y, p1.x, p1.y, 0.9 * fade);
-        }
+        // Trail: continuous glow curve (smoother than dotted points)
+        drawNeonTrail(ctx, trail, tNow, 220);
 
         // Blade cursor (direction follows latest movement).
         const p0 = trail.length >= 2 ? trail[trail.length - 2]! : null;
@@ -398,6 +390,87 @@ function drawNeonDottedSegment(
   }
 
   ctx.restore();
+}
+
+function drawNeonTrail(
+  ctx: CanvasRenderingContext2D,
+  pts: Array<{ x: number; y: number; t: number }>,
+  tNow: number,
+  windowMs: number,
+) {
+  if (pts.length < 2) return;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Outer glow
+  ctx.shadowColor = "rgba(56,189,248,1)";
+  ctx.shadowBlur = 22;
+  ctx.strokeStyle = "rgba(56,189,248,0.9)";
+  ctx.globalAlpha = 0.6;
+  ctx.lineWidth = 7;
+  strokeSmoothPath(ctx, pts);
+
+  // Bright core
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.95)";
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 2.6;
+  strokeSmoothPath(ctx, pts, (p) => clamp01(1 - (tNow - p.t) / windowMs));
+
+  ctx.restore();
+}
+
+function strokeSmoothPath(
+  ctx: CanvasRenderingContext2D,
+  pts: Array<{ x: number; y: number; t: number }>,
+  alphaAt?: (p: { x: number; y: number; t: number }) => number,
+) {
+  // Single pass quadratic smoothing through midpoints.
+  ctx.beginPath();
+  ctx.moveTo(pts[0]!.x, pts[0]!.y);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i]!;
+    const n = pts[i + 1]!;
+    const mx = (p.x + n.x) / 2;
+    const my = (p.y + n.y) / 2;
+    ctx.quadraticCurveTo(p.x, p.y, mx, my);
+  }
+  const last = pts[pts.length - 1]!;
+  ctx.lineTo(last.x, last.y);
+
+  if (!alphaAt) {
+    ctx.stroke();
+    return;
+  }
+
+  // If alpha varies, approximate by stroking short segments (still cheap: trail is short).
+  // We re-stroke with per-segment alpha.
+  const baseStrokeStyle = ctx.strokeStyle;
+  const baseShadowColor = ctx.shadowColor;
+  const baseShadowBlur = ctx.shadowBlur;
+  const baseLineWidth = ctx.lineWidth;
+  const baseLineCap = ctx.lineCap;
+  const baseLineJoin = ctx.lineJoin;
+
+  for (let i = 1; i < pts.length; i++) {
+    const a = alphaAt(pts[i]!);
+    if (a <= 0.02) continue;
+    ctx.save();
+    ctx.strokeStyle = baseStrokeStyle as string;
+    ctx.shadowColor = baseShadowColor as string;
+    ctx.shadowBlur = baseShadowBlur;
+    ctx.lineWidth = baseLineWidth;
+    ctx.lineCap = baseLineCap;
+    ctx.lineJoin = baseLineJoin;
+    ctx.globalAlpha *= a;
+    ctx.beginPath();
+    ctx.moveTo(pts[i - 1]!.x, pts[i - 1]!.y);
+    ctx.lineTo(pts[i]!.x, pts[i]!.y);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function clamp01(v: number) {
