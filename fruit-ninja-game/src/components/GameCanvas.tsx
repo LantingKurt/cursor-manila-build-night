@@ -14,6 +14,7 @@ type Props = {
 
 export function GameCanvas({ state, videoRef, cursor }: Props) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const spritesRef = React.useRef(createSpriteCache());
 
   // Keep latest state/cursor in refs so the RAF loop doesn't need to restart.
   const stateRef = React.useRef(state);
@@ -48,28 +49,21 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
 
       // --- Fruits ---
       for (const f of s.fruits) {
+        const sprite = spriteForFruitKind(f.kind);
         if (!f.sliced) {
-          ctx.save();
-          ctx.globalAlpha = 1;
-          ctx.shadowColor = fruitColor(f.kind);
-          ctx.shadowBlur = 20;
-          ctx.fillStyle = fruitColor(f.kind);
-          ctx.beginPath();
-          ctx.arc(f.pos.x, f.pos.y, f.radius, 0, Math.PI * 2);
-          ctx.fill();
-          // Shine highlight
-          ctx.shadowBlur = 0;
-          ctx.globalAlpha *= 0.38;
-          ctx.fillStyle = "#fff";
-          ctx.beginPath();
-          ctx.arc(f.pos.x - f.radius * 0.28, f.pos.y - f.radius * 0.32, f.radius * 0.36, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
+          const wholeImage = spritesRef.current[sprite.whole];
+          if (wholeImage.complete && wholeImage.naturalWidth > 0) {
+            drawImageCentered(ctx, wholeImage, f.pos.x, f.pos.y, f.radius * 2.6, f.radius * 2.6, 0, 1);
+          } else {
+            drawFallbackFruit(ctx, f.kind, f.pos.x, f.pos.y, f.radius);
+          }
           continue;
         }
 
-        drawSlicedHalf(ctx, f, -1);
-        drawSlicedHalf(ctx, f, 1);
+        const partA = spritesRef.current[sprite.part1];
+        const partB = spritesRef.current[sprite.part2];
+        drawSlicedHalf(ctx, f, -1, partA);
+        drawSlicedHalf(ctx, f, 1, partB);
       }
 
       // --- Slash trails ---
@@ -93,28 +87,23 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
 
       // --- Finger cursor ring ---
       if (cur) {
+        const knife = spritesRef.current.knife;
+        const latestSlash = s.slashes.at(-1);
+        const knifeAngle = latestSlash ? Math.atan2(latestSlash.b.y - latestSlash.a.y, latestSlash.b.x - latestSlash.a.x) : 0;
+
         ctx.save();
-        // Outer glow ring
-        ctx.shadowColor = "rgba(56,189,248,0.95)";
-        ctx.shadowBlur = 22;
-        ctx.strokeStyle = "rgba(255,255,255,0.92)";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(cur.x, cur.y, 28, 0, Math.PI * 2);
-        ctx.stroke();
-        // Second inner ring
-        ctx.globalAlpha = 0.6;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(cur.x, cur.y, 16, 0, Math.PI * 2);
-        ctx.stroke();
-        // Center dot
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "rgba(56,189,248,0.88)";
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.arc(cur.x, cur.y, 5, 0, Math.PI * 2);
-        ctx.fill();
+        if (knife.complete && knife.naturalWidth > 0) {
+          drawImageCentered(ctx, knife, cur.x, cur.y, 78, 78, knifeAngle + Math.PI / 4, 0.95);
+        } else {
+          // Fallback if sprite failed to load.
+          ctx.shadowColor = "rgba(56,189,248,0.95)";
+          ctx.shadowBlur = 22;
+          ctx.strokeStyle = "rgba(255,255,255,0.92)";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(cur.x, cur.y, 28, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         ctx.restore();
       }
 
@@ -196,40 +185,98 @@ function drawSlicedHalf(
     rotation: number;
   },
   side: -1 | 1,
+  sprite: HTMLImageElement,
 ) {
   const baseAngle = Math.atan2(fruit.splitNormal.y, fruit.splitNormal.x);
   const x = fruit.pos.x + fruit.splitNormal.x * fruit.splitOffset * side;
   const y = fruit.pos.y + fruit.splitNormal.y * fruit.splitOffset * side;
-  const r = fruit.radius;
+  if (sprite.complete && sprite.naturalWidth > 0) {
+    drawImageCentered(ctx, sprite, x, y, fruit.radius * 2.2, fruit.radius * 2.2, baseAngle + fruit.rotation * side, 0.95);
+    return;
+  }
 
+  drawFallbackFruit(ctx, fruit.kind, x, y, fruit.radius * 0.78);
+}
+
+function drawImageCentered(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rotation: number,
+  alpha = 1,
+) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate(baseAngle + fruit.rotation * side);
-
-  ctx.shadowColor = fruitColor(fruit.kind);
-  ctx.shadowBlur = 16;
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = fruitColor(fruit.kind);
-
-  ctx.beginPath();
-  if (side > 0) {
-    ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2);
-  } else {
-    ctx.arc(0, 0, r, Math.PI / 2, (3 * Math.PI) / 2);
-  }
-  ctx.closePath();
-  ctx.fill();
-
-  // Light inner flesh line along the cut edge.
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(255,255,255,0.75)";
-  ctx.lineWidth = Math.max(2, r * 0.1);
-  ctx.beginPath();
-  ctx.moveTo(0, -r * 0.85);
-  ctx.lineTo(0, r * 0.85);
-  ctx.stroke();
-
+  ctx.rotate(rotation);
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(image, -w / 2, -h / 2, w, h);
   ctx.restore();
+}
+
+function drawFallbackFruit(ctx: CanvasRenderingContext2D, kind: string, x: number, y: number, radius: number) {
+  ctx.save();
+  ctx.shadowColor = fruitColor(kind);
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = fruitColor(kind);
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+type SpriteKey =
+  | "appleWhole"
+  | "applePart1"
+  | "applePart2"
+  | "grapesWhole"
+  | "grapesPart1"
+  | "grapesPart2"
+  | "candy4Whole"
+  | "candy4Part1"
+  | "candy4Part2"
+  | "candy1Whole"
+  | "candy1Part1"
+  | "candy1Part2"
+  | "knife";
+
+function createSpriteCache(): Record<SpriteKey, HTMLImageElement> {
+  const make = (src: string) => {
+    const img = new Image();
+    img.src = src;
+    return img;
+  };
+
+  return {
+    appleWhole: make("/assets/slice-smash/fruits/apple.png"),
+    applePart1: make("/assets/slice-smash/sliced/apple_part1.png"),
+    applePart2: make("/assets/slice-smash/sliced/apple_part2.png"),
+    grapesWhole: make("/assets/slice-smash/fruits/grapes.png"),
+    grapesPart1: make("/assets/slice-smash/sliced/grapes_part1.png"),
+    grapesPart2: make("/assets/slice-smash/sliced/grapes_part2.png"),
+    candy4Whole: make("/assets/slice-smash/fruits/candy4.png"),
+    candy4Part1: make("/assets/slice-smash/sliced/candy4_part1.png"),
+    candy4Part2: make("/assets/slice-smash/sliced/candy4_part2.png"),
+    candy1Whole: make("/assets/slice-smash/fruits/candy1.png"),
+    candy1Part1: make("/assets/slice-smash/sliced/candy1_part1.png"),
+    candy1Part2: make("/assets/slice-smash/sliced/candy1_part2.png"),
+    knife: make("/assets/slice-smash/weapons/knife.png"),
+  };
+}
+
+function spriteForFruitKind(kind: string): { whole: SpriteKey; part1: SpriteKey; part2: SpriteKey } {
+  switch (kind) {
+    case "orange":
+      return { whole: "grapesWhole", part1: "grapesPart1", part2: "grapesPart2" };
+    case "lemon":
+      return { whole: "candy4Whole", part1: "candy4Part1", part2: "candy4Part2" };
+    case "watermelon":
+      return { whole: "candy1Whole", part1: "candy1Part1", part2: "candy1Part2" };
+    default:
+      return { whole: "appleWhole", part1: "applePart1", part2: "applePart2" };
+  }
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
