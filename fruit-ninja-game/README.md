@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Fruit Ninja (Webcam) — Next.js + TensorFlow.js scaffold
 
-## Getting Started
+Production-ready-ish scaffold for a Fruit Ninja-style game using **webcam hand tracking** (TensorFlow hand pose) + Canvas rendering.
 
-First, run the development server:
+## Requirements
+- Node.js 18+ recommended
+- A browser that supports `getUserMedia` (Chrome/Edge recommended)
+
+## Setup
 
 ```bash
+cd fruit-ninja-game
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How to use (current boilerplate)
+- Click **Enable Webcam**
+- Click **Load Model** (first load downloads assets)
+- Click **Start**
+- Move your hand quickly to trigger a **slash** (basic speed threshold)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Project structure
+- `src/app/page.tsx`: main UI layout + wires hooks
+- `src/components/*`: `GameCanvas`, `WebcamFeed`, `Stats`, `Controls`, `Leaderboard`
+- `src/hooks/*`: `useWebcam`, `useHandDetection`, `useGame`, `useLocalStorage`
+- `src/lib/*`: `handDetection` (TF integration), `gameEngine` (spawn/score/lives), `physics`, `utils`
+- `src/constants/*`: `gameConfig`, `colors`
+- `src/app/api/*`: leaderboard API routes
 
-## Learn More
+## API routes
+Next.js App Router routes:
+- `GET /api/leaderboard` → top 10
+- `POST /api/leaderboard` → `{ name, score }`
+- `GET/POST /api/scores` → alias for compatibility
 
-To learn more about Next.js, take a look at the following resources:
+By default this uses **in-memory storage** (resets on server restart). Swap it for a real DB for production.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Environment variables
+Create `.env.local`:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:3000/api
+NEXT_PUBLIC_LEADERBOARD_ENABLED=true
+```
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes / next steps
+- Add proper slash trail + multi-hand support (currently uses index finger tip as primary point)
+- Implement fruit splitting into two pieces on slice
+- Persist leaderboard to a database or localStorage fallback
+- Performance tuning: throttle detector FPS and decouple render loop from detection loop
