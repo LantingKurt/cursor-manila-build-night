@@ -158,12 +158,36 @@ function drawPhaseOverlay(ctx: CanvasRenderingContext2D, phase: string, w: numbe
   if (!text) return;
 
   ctx.save();
-  ctx.font = "800 18px ui-sans-serif, system-ui";
+  const maxBoxW = Math.max(240, w - 80);
+  const padX = 28;
+  const padY = 14;
+
+  // Prefer splitting on arrows to keep instructions readable.
+  const arrowParts = text.split("→").map((s) => s.trim()).filter(Boolean);
+  let lines: string[] = [text];
+  if (arrowParts.length >= 3) {
+    lines = [arrowParts[0], `${arrowParts[1]} → ${arrowParts.slice(2).join(" → ")}`];
+  } else if (arrowParts.length === 2) {
+    lines = [arrowParts[0], arrowParts[1]];
+  }
+
+  let fontSize = 18;
+  const fontFamily = "ui-sans-serif, system-ui";
+  const measureMaxLineW = () => Math.max(...lines.map((ln) => ctx.measureText(ln).width));
+
+  // Downshift font size if we would overflow the box.
+  ctx.font = `800 ${fontSize}px ${fontFamily}`;
+  while (fontSize > 14 && measureMaxLineW() + padX * 2 > maxBoxW) {
+    fontSize -= 1;
+    ctx.font = `800 ${fontSize}px ${fontFamily}`;
+  }
+
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const tw = ctx.measureText(text).width;
-  const boxW = tw + 56;
-  const boxH = 50;
+  const lineH = Math.round(fontSize * 1.25);
+  const tw = measureMaxLineW();
+  const boxW = Math.min(maxBoxW, tw + padX * 2);
+  const boxH = lines.length === 1 ? 50 : padY * 2 + lineH * lines.length + 6;
   const bx = (w - boxW) / 2;
   const by = h / 2 - boxH / 2;
 
@@ -172,7 +196,14 @@ function drawPhaseOverlay(ctx: CanvasRenderingContext2D, phase: string, w: numbe
   ctx.fill();
 
   ctx.fillStyle = color;
-  ctx.fillText(text, w / 2, h / 2);
+  if (lines.length === 1) {
+    ctx.fillText(lines[0] ?? "", w / 2, h / 2);
+  } else {
+    const startY = h / 2 - (lineH * (lines.length - 1)) / 2;
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i] ?? "", w / 2, startY + i * lineH);
+    }
+  }
   ctx.restore();
 }
 

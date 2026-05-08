@@ -17,7 +17,9 @@ export function useWebcam() {
     setState({ status: "loading" });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        // MediaPipe downscales to ~256 internally; smaller capture cuts GPU upload cost
+        // without affecting landmark accuracy.
+        video: { facingMode: "user", width: { ideal: 480 }, height: { ideal: 360 } },
         audio: false,
       });
       streamRef.current = stream;

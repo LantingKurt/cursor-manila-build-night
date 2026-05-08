@@ -65,7 +65,8 @@ export async function loadHandDetector(state: HandDetectorState): Promise<HandDe
         delegate: "GPU",
       },
       runningMode: "VIDEO",
-      numHands: 2,
+      // Single-player game — tracking only one hand roughly halves landmarking cost.
+      numHands: 1,
       minHandDetectionConfidence: 0.5,
       minHandPresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
