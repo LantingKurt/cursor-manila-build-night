@@ -14,6 +14,12 @@ export type Fruit = {
   vel: Vec2;
   radius: number;
   sliced: boolean;
+  slicedAtMs: number | null;
+  splitNormal: Vec2;
+  splitOffset: number;
+  splitSpeed: number;
+  rotation: number;
+  rotationSpeed: number;
   spawnedAtMs: number;
 };
 
@@ -137,6 +143,12 @@ function spawnFruit(nowMs: number, w: number, h: number): Fruit {
     vel: { x: vx, y: vy },
     radius,
     sliced: false,
+    slicedAtMs: null,
+    splitNormal: { x: 1, y: 0 },
+    splitOffset: 0,
+    splitSpeed: 0,
+    rotation: 0,
+    rotationSpeed: 0,
     spawnedAtMs: nowMs,
   };
 }
@@ -200,7 +212,25 @@ export function stepGame(prev: GameState, input: StepInput): GameState {
     if (!f.sliced && input.slash) {
       const hit = segmentIntersectsCircle(input.slash.a, input.slash.b, f.pos, f.radius);
       if (hit) {
+        const slashDx = input.slash.b.x - input.slash.a.x;
+        const slashDy = input.slash.b.y - input.slash.a.y;
+        const slashLen = Math.hypot(slashDx, slashDy);
+        const splitNormal = slashLen > 1e-6
+          ? { x: -slashDy / slashLen, y: slashDx / slashLen }
+          : { x: 1, y: 0 };
+
         f.sliced = true;
+        f.slicedAtMs = nowMs;
+        f.splitNormal = splitNormal;
+        f.splitOffset = 0;
+        f.splitSpeed = rand(120, 220);
+        f.rotation = 0;
+        f.rotationSpeed = rand(2.5, 5.5);
+        f.vel = {
+          x: f.vel.x + splitNormal.x * rand(40, 120),
+          y: f.vel.y - rand(30, 120),
+        };
+
         const comboApplied = applyCombo(state, nowMs);
         combo = comboApplied.combo;
         bestCombo = comboApplied.bestCombo;
@@ -211,8 +241,14 @@ export function stepGame(prev: GameState, input: StepInput): GameState {
       }
     }
 
+    if (f.sliced) {
+      f.splitOffset += f.splitSpeed * dt;
+      f.splitSpeed *= Math.pow(0.985, dt * 60);
+      f.rotation += f.rotationSpeed * dt;
+    }
+
     // Keep fruit if still relevant (sliced fruits could later become pieces; for boilerplate we just keep briefly).
-    const tooOldSliced = f.sliced && nowMs - f.spawnedAtMs > 1200;
+    const tooOldSliced = f.sliced && f.slicedAtMs !== null && nowMs - f.slicedAtMs > 2200;
     if (!tooOldSliced) fruits.push(f);
   }
 

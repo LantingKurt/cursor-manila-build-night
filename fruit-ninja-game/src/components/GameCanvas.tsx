@@ -48,22 +48,28 @@ export function GameCanvas({ state, videoRef, cursor }: Props) {
 
       // --- Fruits ---
       for (const f of s.fruits) {
-        ctx.save();
-        ctx.globalAlpha = f.sliced ? 0.45 : 1;
-        ctx.shadowColor = fruitColor(f.kind);
-        ctx.shadowBlur = 20;
-        ctx.fillStyle = fruitColor(f.kind);
-        ctx.beginPath();
-        ctx.arc(f.pos.x, f.pos.y, f.radius, 0, Math.PI * 2);
-        ctx.fill();
-        // Shine highlight
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha *= 0.38;
-        ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(f.pos.x - f.radius * 0.28, f.pos.y - f.radius * 0.32, f.radius * 0.36, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+        if (!f.sliced) {
+          ctx.save();
+          ctx.globalAlpha = 1;
+          ctx.shadowColor = fruitColor(f.kind);
+          ctx.shadowBlur = 20;
+          ctx.fillStyle = fruitColor(f.kind);
+          ctx.beginPath();
+          ctx.arc(f.pos.x, f.pos.y, f.radius, 0, Math.PI * 2);
+          ctx.fill();
+          // Shine highlight
+          ctx.shadowBlur = 0;
+          ctx.globalAlpha *= 0.38;
+          ctx.fillStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(f.pos.x - f.radius * 0.28, f.pos.y - f.radius * 0.32, f.radius * 0.36, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          continue;
+        }
+
+        drawSlicedHalf(ctx, f, -1);
+        drawSlicedHalf(ctx, f, 1);
       }
 
       // --- Slash trails ---
@@ -177,6 +183,53 @@ function fruitColor(kind: string) {
     case "lemon":      return "#facc15";
     default:           return "#fb7185";
   }
+}
+
+function drawSlicedHalf(
+  ctx: CanvasRenderingContext2D,
+  fruit: {
+    kind: string;
+    pos: Vec2;
+    radius: number;
+    splitNormal: Vec2;
+    splitOffset: number;
+    rotation: number;
+  },
+  side: -1 | 1,
+) {
+  const baseAngle = Math.atan2(fruit.splitNormal.y, fruit.splitNormal.x);
+  const x = fruit.pos.x + fruit.splitNormal.x * fruit.splitOffset * side;
+  const y = fruit.pos.y + fruit.splitNormal.y * fruit.splitOffset * side;
+  const r = fruit.radius;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(baseAngle + fruit.rotation * side);
+
+  ctx.shadowColor = fruitColor(fruit.kind);
+  ctx.shadowBlur = 16;
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = fruitColor(fruit.kind);
+
+  ctx.beginPath();
+  if (side > 0) {
+    ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2);
+  } else {
+    ctx.arc(0, 0, r, Math.PI / 2, (3 * Math.PI) / 2);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // Light inner flesh line along the cut edge.
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.lineWidth = Math.max(2, r * 0.1);
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 0.85);
+  ctx.lineTo(0, r * 0.85);
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
